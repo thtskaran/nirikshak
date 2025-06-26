@@ -34,10 +34,25 @@ const ChatModal = ({ model, onClose }: ChatModalProps) => {
       const assistantMessage = res.data.message;
       setMessages((prev) => [...prev, assistantMessage]);
     } catch (err: any) {
-      const errorMessage = {
+      let errorMessage = {
         role: 'assistant',
         content: '⚠️ Failed to get a response from the model.'
       };
+
+      // Check if it's a safety-blocked response
+      if (err.response?.data?.code === 'S6' && err.response?.data?.error) {
+        errorMessage = {
+          role: 'assistant',
+          content: `🛡️ Response blocked (${err.response.data.code}): ${err.response.data.error}`
+        };
+      } else if (err.response?.data?.error) {
+        // Handle other API errors with specific messages
+        errorMessage = {
+          role: 'assistant',
+          content: `⚠️ Error: ${err.response.data.error}`
+        };
+      }
+
       setMessages((prev) => [...prev, errorMessage]);
       console.error('Chat error:', err);
     } finally {
