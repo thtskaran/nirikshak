@@ -1,0 +1,62 @@
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --background: 15 17 23; /* #0F1117 */
+    --foreground: 224 224 224; /* #E0E0E0 */
+    --card: 20 25 35;
+    --card-foreground: 224 224 224;
+    --popover: 20 25 35;
+    --popover-foreground: 224 224 224;
+    --primary: 188 205 212; /* #00BCD4 */
+    --primary-foreground: 15 17 23;
+    --secondary: 30 35 45;
+    --secondary-foreground: 224 224 224;
+    --muted: 25 30 40;
+    --muted-foreground: 156 163 175;
+    --accent: 188 205 212;
+    --accent-foreground: 15 17 23;
+    --destructive: 239 68 68;
+    --destructive-foreground: 248 250 252;
+    --border: 30 35 45;
+    --input: 30 35 45;
+    --ring: 188 205 212;
+    --radius: 0.75rem;
+  }
+
+  body {
+    @apply bg-[#0F1117] text-[#E0E0E0] font-sans;
+  }
+}
+
+@layer utilities {
+  .glow-cyan {
+    box-shadow: 0 0 20px rgba(0, 188, 212, 0.3);
+  }
+  
+  .glow-cyan-strong {
+    box-shadow: 0 0 30px rgba(0, 188, 212, 0.5);
+  }
+  
+  .glass-effect {
+    background: rgba(30, 35, 45, 0.8);
+    backdrop-filter: blur(10px);
+    border: 1px solid rgba(0, 188, 212, 0.2);
+  }
+  
+  .animate-pulse-glow {
+    animation: pulse-glow 2s infinite;
+  }
+  
+  @keyframes pulse-glow {
+    0%, 100% {
+      box-shadow: 0 0 20px rgba(0, 188, 212, 0.3);
+    }
+    50% {
+      box-shadow: 0 0 40px rgba(0, 188, 212, 0.6);
+    }
+  }
+}
