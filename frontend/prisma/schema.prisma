@@ -1,0 +1,114 @@
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "mongodb"
+  url      = env("DATABASE_URL")
+}
+
+enum DeploymentStatus {
+  PENDING
+  DEPLOYED
+  STOPPED
+  ERROR
+}
+
+enum LogVerdict {
+  SAFE
+  UNSAFE
+}
+
+enum SCode {
+  S1
+  S2
+  S3
+  S4
+  S5
+  S6
+  S7
+  S8
+  S9
+  S10
+  S11
+  S12
+  S13
+  S14
+}
+
+model User {
+  id        String   @id @default(auto()) @map("_id") @db.ObjectId
+  email     String   @unique
+  name      String?
+  role      String   @default("admin")
+  createdAt DateTime @default(now())
+
+  // auditEvents AuditEvent[]
+}
+
+model Model {
+  id          String       @id @default(auto()) @map("_id") @db.ObjectId
+  name        String
+  provider    String?
+  tags        String[]     @default([])
+  parameters  Int?
+  deployments Deployment[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model Deployment {
+  id           String           @id @default(auto()) @map("_id") @db.ObjectId
+  model        Model            @relation(fields: [modelId], references: [id])
+  modelId      String           @db.ObjectId
+  name         String
+  description  String?
+  systemPrompt String
+  temperature  Float            @default(0.7)
+  endpoint     String           @unique
+  containerId  String?
+  status       DeploymentStatus @default(PENDING)
+  logs         LogEntry[]
+  reports      RedTeamReport[]
+  auditEvents  AuditEvent[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model LogEntry {
+  id             String     @id @default(auto()) @map("_id") @db.ObjectId
+  deployment     Deployment @relation(fields: [deploymentId], references: [id])
+  deploymentId   String     @db.ObjectId
+  timestamp      DateTime   @default(now())
+  requestSample  String?
+  responseSample String?
+  verdict        LogVerdict
+  sCode          SCode?
+}
+
+model RedTeamReport {
+  id           String     @id @default(auto()) @map("_id") @db.ObjectId
+  deployment   Deployment @relation(fields: [deploymentId], references: [id])
+  deploymentId String     @db.ObjectId
+  reportDoc    String?
+  safe         Boolean
+  description  String?
+  conversation Json?
+  createdAt    DateTime   @default(now())
+  updatedAt    DateTime   @updatedAt
+}
+
+model AuditEvent {
+  id           String      @id @default(auto()) @map("_id") @db.ObjectId
+  // user         User?       @relation(fields: [userId], references: [id])
+  // userId       String?     @db.ObjectId
+  deployment   Deployment? @relation(fields: [deploymentId], references: [id])
+  deploymentId String?     @db.ObjectId
+
+  action    String
+  detail    String?
+  timestamp DateTime @default(now())
+}
