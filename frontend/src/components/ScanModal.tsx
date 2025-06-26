@@ -36,7 +36,9 @@ const ScanModal = ({ model, onClose }: ScanModalProps) => {
   const [isImporting, setIsImporting] = useState(false);
   const [importStep, setImportStep] = useState('');
   const [isEditingPrompt, setIsEditingPrompt] = useState(false);
-  const [suggestedPrompt, setSuggestedPrompt] = useState('You are an expert AI assistant specialized in providing accurate, well-structured responses. Always verify information and provide sources when possible. Be concise yet comprehensive.');
+  const [suggestedPrompt, setSuggestedPrompt] = useState('');
+  const [deploymentData, setDeploymentData] = useState<any>(null);
+  const [loadingDeployment, setLoadingDeployment] = useState(true);
   
   // New state for red teaming
   const [reports, setReports] = useState<RedTeamReport[]>([]);
@@ -45,10 +47,44 @@ const ScanModal = ({ model, onClose }: ScanModalProps) => {
   const [error, setError] = useState<string | null>(null);
   const [scanStep, setScanStep] = useState('');
 
+  // Fetch deployment data on component mount
+  useEffect(() => {
+    fetchDeploymentData();
+  }, [model?._id]);
+
   // Fetch existing reports on component mount
   useEffect(() => {
     fetchReports();
   }, [model?._id]);
+
+  const fetchDeploymentData = async () => {
+    if (!model?._id) {
+      setError('Model ID not found');
+      setLoadingDeployment(false);
+      return;
+    }
+
+    try {
+      setLoadingDeployment(true);
+      setError(null);
+      
+      // Fetch the current deployment data
+      const response = await api2.get(`/api/v1/deployments/${model._id}`);
+      
+      if (response.data) {
+        setDeploymentData(response.data);
+        // Set the system prompt from the deployment data
+        setSuggestedPrompt(response.data.systemPrompt || 'You are an expert AI assistant specialized in providing accurate, well-structured responses. Always verify information and provide sources when possible. Be concise yet comprehensive.');
+      }
+    } catch (err: any) {
+      console.error('Failed to fetch deployment:', err);
+      setError('Failed to fetch deployment data');
+      // Set default prompt if fetch fails
+      setSuggestedPrompt('You are an expert AI assistant specialized in providing accurate, well-structured responses. Always verify information and provide sources when possible. Be concise yet comprehensive.');
+    } finally {
+      setLoadingDeployment(false);
+    }
+  };
 
   // Comprehensive 2-minute scan simulation
   useEffect(() => {
@@ -297,6 +333,33 @@ const ScanModal = ({ model, onClose }: ScanModalProps) => {
     return 'text-green-400';
   };
 
+  const handleSavePrompt = async () => {
+    if (!isEditingPrompt) {
+      setIsEditingPrompt(true);
+      return;
+    }
+
+    try {
+      // Save the prompt to the deployment
+      const response = await api2.patch(`/api/v1/deployments/${model._id}`, {
+        systemPrompt: suggestedPrompt,
+        temperature: deploymentData?.temperature || 0.7,
+        name: deploymentData?.name || model.name,
+        description: deploymentData?.description || model.description
+      });
+
+      if (response.data?.deployment) {
+        setDeploymentData(response.data.deployment);
+        toast.success('System prompt updated successfully');
+      }
+      
+      setIsEditingPrompt(false);
+    } catch (error: any) {
+      console.error('Failed to save prompt:', error);
+      toast.error('Failed to save system prompt');
+    }
+  };
+
   const importToPromptFlow = async () => {
     setIsImporting(true);
     setImportStep('Connecting to Prompt Flow...');
@@ -318,19 +381,19 @@ const ScanModal = ({ model, onClose }: ScanModalProps) => {
           try {
             const response = await api2.patch(`/api/v1/deployments/${model._id}`, {
               systemPrompt: suggestedPrompt,
-              temperature: 0.7, // You can make this configurable
-              name: model.name,
-              description: model.description || 'Updated via Red Team Analysis'
+              temperature: deploymentData?.temperature || 0.7,
+              name: deploymentData?.name || model.name,
+              description: deploymentData?.description || model.description || 'Updated via Red Team Analysis'
             });
             
             if (response.data?.deployment) {
-              // Update local model data if needed
+              // Update local deployment data
+              setDeploymentData(response.data.deployment);
               console.log('Deployment updated successfully:', response.data.deployment);
             }
           } catch (apiError: any) {
             console.error('Failed to update deployment:', apiError);
-            // Continue with simulation for demo purposes
-            setImportStep('Simulating deployment update...');
+            throw apiError; // Re-throw to handle in outer catch
           }
         }
       }
@@ -364,7 +427,8 @@ const ScanModal = ({ model, onClose }: ScanModalProps) => {
                   <Button
                     variant="ghost"
                     size="sm"
-                    onClick={() => setIsEditingPrompt(!isEditingPrompt)}
+                    onClick={handleSavePrompt}
+                    disabled={loadingDeployment}
                     className="text-cyan-400 hover:bg-cyan-500/20"
                   >
                     <Edit size={16} className="mr-2" />
@@ -372,7 +436,11 @@ const ScanModal = ({ model, onClose }: ScanModalProps) => {
                   </Button>
                 </div>
                 
-                {isEditingPrompt ? (
+                {loadingDeployment ? (
+                  <div className="p-4 bg-gray-900/50 rounded-lg border border-gray-600">
+                    <p className="text-gray-400 text-sm">Loading system prompt...</p>
+                  </div>
+                ) : isEditingPrompt ? (
                   <Textarea
                     value={suggestedPrompt}
                     onChange={(e) => setSuggestedPrompt(e.target.value)}
@@ -382,7 +450,7 @@ const ScanModal = ({ model, onClose }: ScanModalProps) => {
                 ) : (
                   <div className="p-4 bg-gray-900/50 rounded-lg border border-gray-600">
                     <p className="text-gray-300 text-sm leading-relaxed">
-                      {suggestedPrompt}
+                      {suggestedPrompt || 'No system prompt configured'}
                     </p>
                   </div>
                 )}

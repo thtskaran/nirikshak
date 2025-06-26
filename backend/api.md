@@ -288,7 +288,8 @@ Get the status of red team testing for a deployment.
   "safe": false,
   "createdAt": "2024-01-15T10:45:00Z",
   "reportUrl": "https://yukti-oldprod.s3.ap-northeast-2.amazonaws.com/nirikshak/reports/redteam_report_uuid.pdf",
-  "s3Key": "nirikshak/reports/redteam_report_uuid.pdf"
+  "s3Key": "nirikshak/reports/redteam_report_uuid.pdf",
+  "suggestedSystemPrompt": "Enhanced system prompt with safety measures..."
 }
 ```
 

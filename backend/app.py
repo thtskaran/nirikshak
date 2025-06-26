@@ -979,13 +979,19 @@ def get_red_team_status(deployment_id: str):
         
         latest_report = max(reports, key=lambda x: x['createdAt'])
         
+        # Extract suggested system prompt from the report
+        suggested_prompt = None
+        if latest_report.get('conversation') and latest_report['conversation'].get('suggested_system_prompt'):
+            suggested_prompt = latest_report['conversation']['suggested_system_prompt']
+        
         return jsonify({
             "status": "completed",
             "reportId": str(latest_report['_id']),
             "safe": latest_report['safe'],
             "createdAt": latest_report['createdAt'],
-            "reportUrl": latest_report.get('reportUrl'),  # S3 URL
-            "s3Key": latest_report.get('reportDoc')  # S3 key
+            "reportUrl": latest_report.get('reportUrl'),
+            "s3Key": latest_report.get('reportDoc'),
+            "suggestedSystemPrompt": suggested_prompt
         })
     except Exception as e:
         logging.error(f"Error getting red team status: {e}")
