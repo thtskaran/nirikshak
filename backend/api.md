@@ -149,6 +149,50 @@ Retrieve a specific deployment by ID.
 }
 ```
 
+### Update Deployment
+
+Update deployment settings like system prompt, temperature, etc.
+
+**Endpoint:** `PATCH /api/v1/deployments/{deployment_id}`
+
+**Path Parameters:**
+- `deployment_id` (string): The deployment ID
+
+**Request Body (all fields optional):**
+```json
+{
+  "name": "string",
+  "description": "string", 
+  "systemPrompt": "string",
+  "temperature": 0.7
+}
+```
+
+**Response:**
+```json
+{
+  "message": "Deployment updated successfully",
+  "deployment": {
+    "_id": "string",
+    "modelId": "string",
+    "name": "string",
+    "description": "string",
+    "systemPrompt": "string",
+    "temperature": 0.7,
+    "status": "DEPLOYED",
+    "endpoint": "string",
+    "containerName": "string",
+    "containerId": "string",
+    "createdAt": "timestamp"
+  },
+  "updatedFields": ["name", "systemPrompt"]
+}
+```
+
+**Validation:**
+- `temperature` must be a number between 0 and 2
+- Only allowed fields: `name`, `description`, `systemPrompt`, `temperature`
+
 ## Chat Proxy
 
 ### Send Chat Message
@@ -243,7 +287,8 @@ Get the status of red team testing for a deployment.
   "reportId": "673a1b5c8f9e123456789ghi",
   "safe": false,
   "createdAt": "2024-01-15T10:45:00Z",
-  "reportPath": "reports/redteam_report_uuid.pdf"
+  "reportUrl": "https://yukti-oldprod.s3.ap-northeast-2.amazonaws.com/nirikshak/reports/redteam_report_uuid.pdf",
+  "s3Key": "nirikshak/reports/redteam_report_uuid.pdf"
 }
 ```
 
@@ -316,7 +361,8 @@ Retrieve red team security reports for a deployment.
         }
       ]
     },
-    "reportDoc": "reports/redteam_report_uuid.pdf",
+    "reportDoc": "nirikshak/reports/redteam_report_uuid.pdf",
+    "reportUrl": "https://yukti-oldprod.s3.ap-northeast-2.amazonaws.com/nirikshak/reports/redteam_report_uuid.pdf",
     "createdAt": "2024-01-15T10:45:00Z"
   }
 ]
@@ -324,7 +370,7 @@ Retrieve red team security reports for a deployment.
 
 ### Download Report
 
-Download a red team report as PDF.
+Download a red team report as PDF (redirects to presigned S3 URL).
 
 **Endpoint:** `GET /api/v1/reports/{report_id}/download`
 
@@ -332,8 +378,27 @@ Download a red team report as PDF.
 - `report_id` (string): The report ID
 
 **Response:**
-- Content-Type: `application/pdf`
-- Content-Disposition: `attachment; filename="red_team_report_{report_id}.pdf"`
+- **Status 302**: Redirects to presigned S3 URL for direct download
+- **Content-Type**: `application/pdf`
+- **Valid for**: 1 hour
+
+### Get Report URL
+
+Get a presigned URL for direct access to the report.
+
+**Endpoint:** `GET /api/v1/reports/{report_id}/url`
+
+**Path Parameters:**
+- `report_id` (string): The report ID
+
+**Response:**
+```json
+{
+  "downloadUrl": "https://yukti-oldprod.s3.ap-northeast-2.amazonaws.com/nirikshak/reports/redteam_report_uuid.pdf?X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=...",
+  "expiresIn": 3600,
+  "reportId": "673a1b5c8f9e123456789ghi"
+}
+```
 
 ## Error Handling
 
@@ -351,6 +416,7 @@ All error responses follow this format:
 
 - `200`: Success
 - `201`: Created successfully
+- `302`: Redirect (for report downloads)
 - `400`: Bad request / Unsafe content blocked
 - `404`: Resource not found
 - `500`: Internal server error
@@ -416,8 +482,11 @@ curl -X POST http://3.110.167.170:5001/api/v1/proxy/nirikshak-deployment-abc1234
 # 4. Check red team status
 curl http://3.110.167.170:5001/api/v1/deployments/673a1b5c8f9e123456789def/red-team/status
 
-# 5. Download report
-curl -O http://3.110.167.170:5001/api/v1/reports/673a1b5c8f9e123456789ghi/download
+# 5. Get presigned download URL
+curl http://3.110.167.170:5001/api/v1/reports/673a1b5c8f9e123456789ghi/url
+
+# 6. Download report (redirects to S3)
+curl -L http://3.110.167.170:5001/api/v1/reports/673a1b5c8f9e123456789ghi/download
 ```
 
 ### JavaScript/Node.js Example
@@ -465,6 +534,15 @@ async function deployAndTest() {
     });
     
     console.log('Chat response:', chatResponse.data);
+    
+    // Check for red team report
+    const statusResponse = await axios.get(`${BASE_URL}/api/v1/deployments/${deploymentId}/red-team/status`);
+    
+    if (statusResponse.data.status === 'completed') {
+      // Get presigned URL for report
+      const urlResponse = await axios.get(`${BASE_URL}/api/v1/reports/${statusResponse.data.reportId}/url`);
+      console.log('Report download URL:', urlResponse.data.downloadUrl);
+    }
     
   } catch (error) {
     console.error('Error:', error.response?.data || error.message);
@@ -518,6 +596,14 @@ def deploy_and_test():
     })
     
     print('Chat response:', chat_response.json())
+    
+    # Check for red team report
+    status_response = requests.get(f'{BASE_URL}/api/v1/deployments/{deployment_id}/red-team/status')
+    
+    if status_response.json()['status'] == 'completed':
+        # Get presigned URL for report
+        url_response = requests.get(f'{BASE_URL}/api/v1/reports/{status_response.json()["reportId"]}/url')
+        print('Report download URL:', url_response.json()['downloadUrl'])
 
 if __name__ == '__main__':
     deploy_and_test()
@@ -530,15 +616,26 @@ Currently, there are no rate limits implemented. However, model response times m
 - Container resource allocation
 - Current system load
 
+## S3 Integration
+
+Reports are now stored in AWS S3 for better scalability and availability:
+
+- **Bucket**: `yukti-oldprod`
+- **Prefix**: `nirikshak/reports/`
+- **Access**: Presigned URLs with 1-hour expiry
+- **Format**: PDF files
+
 ## Support
 
 For issues or questions about the API, please check:
 - Container logs for deployment issues
 - Model availability in Ollama
 - Network connectivity to the specified IP address
+- S3 access permissions for report downloads
 
 ## Changelog
 
 - **v1.0**: Initial API release with basic deployment and chat functionality
 - **v1.1**: Added red team testing capabilities
 - **v1.2**: Enhanced safety filtering with LlamaGuard integration
+- **v1.3**: Integrated S3 storage for reports with presigned URLs

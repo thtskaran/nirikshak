@@ -1110,6 +1110,64 @@ def get_reports(deployment_id: str):
     except Exception as e:
         return jsonify({"error": f"Invalid deployment ID: {e}"}), 400
 
+@app.route("/api/v1/deployments/<deployment_id>", methods=["PATCH"])
+def update_deployment(deployment_id: str):
+    """Update deployment settings like system prompt, temperature, etc."""
+    try:
+        deployment = deployments_collection.find_one({"_id": ObjectId(deployment_id)})
+        if not deployment:
+            return jsonify({"error": "Deployment not found"}), 404
+        
+        # Get the update data from request
+        update_data = request.json
+        if not update_data:
+            return jsonify({"error": "No update data provided"}), 400
+        
+        # Allowed fields to update
+        allowed_fields = {
+            'name', 'description', 'systemPrompt', 'temperature'
+        }
+        
+        # Build update object with only allowed fields
+        update_obj = {}
+        for field in allowed_fields:
+            if field in update_data:
+                update_obj[field] = update_data[field]
+        
+        if not update_obj:
+            return jsonify({"error": "No valid fields to update"}), 400
+        
+        # Validate temperature if provided
+        if 'temperature' in update_obj:
+            temp = update_obj['temperature']
+            if not isinstance(temp, (int, float)) or temp < 0 or temp > 2:
+                return jsonify({"error": "Temperature must be a number between 0 and 2"}), 400
+        
+        # Update the deployment
+        result = deployments_collection.update_one(
+            {"_id": ObjectId(deployment_id)},
+            {"$set": update_obj}
+        )
+        
+        if result.modified_count == 0:
+            return jsonify({"error": "No changes made"}), 400
+        
+        # Get updated deployment
+        updated_deployment = deployments_collection.find_one({"_id": ObjectId(deployment_id)})
+        updated_deployment['_id'] = str(updated_deployment['_id'])
+        updated_deployment['modelId'] = str(updated_deployment['modelId'])
+        
+        logging.info(f"Updated deployment {deployment_id} with fields: {list(update_obj.keys())}")
+        
+        return jsonify({
+            "message": "Deployment updated successfully",
+            "deployment": updated_deployment,
+            "updatedFields": list(update_obj.keys())
+        })
+        
+    except Exception as e:
+        logging.error(f"Error updating deployment: {e}")
+        return jsonify({"error": f"Failed to update deployment: {str(e)}"}), 500
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=5001, debug=True)
