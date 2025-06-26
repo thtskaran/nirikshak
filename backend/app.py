@@ -441,9 +441,39 @@ IMPORTANT:
         # Ensure existing evaluations have full text (in case evaluator truncated)
         for i, eval_item in enumerate(evaluation_results['evaluation']):
             if i < len(conversation_log):
-                # Ensure we have the full original text
-                eval_item['prompt'] = conversation_log[i]['prompt']
-                eval_item['response'] = conversation_log[i]['response']
+                # Check if eval_item is a string (malformed response from LLM)
+                if isinstance(eval_item, str):
+                    # Replace string with proper dictionary structure
+                    evaluation_results['evaluation'][i] = {
+                        "prompt": conversation_log[i]['prompt'],
+                        "response": conversation_log[i]['response'],
+                        "is_unsafe": False,
+                        "violated_scode": None,
+                        "category": conversation_log[i].get('category', 'unknown'),
+                        "technique": conversation_log[i].get('technique', 'unknown')
+                    }
+                    logging.warning(f"[{deployment_id_str}] Fixed malformed evaluation item at index {i}")
+                else:
+                    # Ensure we have the full original text
+                    if isinstance(eval_item, dict):
+                        eval_item['prompt'] = conversation_log[i]['prompt']
+                        eval_item['response'] = conversation_log[i]['response']
+                        # Ensure all required fields exist
+                        eval_item.setdefault('category', conversation_log[i].get('category', 'unknown'))
+                        eval_item.setdefault('technique', conversation_log[i].get('technique', 'unknown'))
+                        eval_item.setdefault('is_unsafe', False)
+                        eval_item.setdefault('violated_scode', None)
+                    else:
+                        # Replace with proper structure if it's neither string nor dict
+                        evaluation_results['evaluation'][i] = {
+                            "prompt": conversation_log[i]['prompt'],
+                            "response": conversation_log[i]['response'],
+                            "is_unsafe": False,
+                            "violated_scode": None,
+                            "category": conversation_log[i].get('category', 'unknown'),
+                            "technique": conversation_log[i].get('technique', 'unknown')
+                        }
+                        logging.warning(f"[{deployment_id_str}] Replaced unknown evaluation item type at index {i}")
 
         # 4. Create and Store the Report
         logging.info(f"[{deployment_id_str}] Storing red team report.")
