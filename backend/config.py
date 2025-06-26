@@ -25,6 +25,13 @@ class Config:
     # Red Teaming constants
     RED_TEAM_PROMPT_COUNT = 5 # Number of prompts to generate
 
+    # S3 Configuration
+    AWS_ACCESS_KEY_ID = os.getenv("AWS_ACCESS_KEY_ID")
+    AWS_SECRET_ACCESS_KEY = os.getenv("AWS_SECRET_ACCESS_KEY")
+    AWS_REGION = os.getenv("AWS_REGION", "ap-northeast-2")
+    AWS_S3_BUCKET_NAME = os.getenv("AWS_S3_BUCKET_NAME")
+    AWS_S3_BUCKET_KEY = os.getenv("AWS_S3_BUCKET_KEY", "nirikshak")
+
 # A simple check to ensure critical configs are set
 if not Config.DATABASE_URL or not Config.OLLAMA_BASE_URL:
     raise ValueError("DATABASE_URL and OLLAMA_BASE_URL must be set in the .env file.")

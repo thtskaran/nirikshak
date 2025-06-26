@@ -7,8 +7,10 @@ import logging
 import requests
 import docker
 import os
+import boto3
+from botocore.exceptions import ClientError, NoCredentialsError
 from bson import ObjectId
-from flask import Flask, jsonify, request
+from flask import Flask, jsonify, request, redirect
 from flask_cors import CORS
 from pymongo import MongoClient
 from pymongo.collection import Collection
@@ -44,12 +46,64 @@ except Exception as e:
     logging.error(f"Failed to connect to services: {e}")
     exit(1)
 
-# Create reports directory if it doesn't exist
+# --- S3 Setup ---
+try:
+    s3_client = boto3.client(
+        's3',
+        aws_access_key_id=Config.AWS_ACCESS_KEY_ID,
+        aws_secret_access_key=Config.AWS_SECRET_ACCESS_KEY,
+        region_name=Config.AWS_REGION
+    )
+    logging.info("Successfully connected to AWS S3.")
+except Exception as e:
+    logging.error(f"Failed to connect to S3: {e}")
+    s3_client = None
+
+# Create reports directory if it doesn't exist (for local temp storage)
 if not os.path.exists("reports"):
     os.makedirs("reports")
 
 
 # --- Helper Functions ---
+
+def upload_to_s3(local_file_path: str, s3_key: str) -> str:
+    """Upload a file to S3 and return the S3 URL."""
+    if not s3_client:
+        logging.error("S3 client not available")
+        return None
+    
+    try:
+        s3_client.upload_file(
+            local_file_path, 
+            Config.AWS_S3_BUCKET_NAME, 
+            s3_key,
+            ExtraArgs={'ContentType': 'application/pdf'}
+        )
+        
+        # Generate S3 URL
+        s3_url = f"https://{Config.AWS_S3_BUCKET_NAME}.s3.{Config.AWS_REGION}.amazonaws.com/{s3_key}"
+        logging.info(f"Successfully uploaded to S3: {s3_url}")
+        return s3_url
+        
+    except Exception as e:
+        logging.error(f"Failed to upload to S3: {e}")
+        return None
+
+def generate_presigned_url(s3_key: str, expiration: int = 3600) -> str:
+    """Generate a presigned URL for S3 object download."""
+    if not s3_client:
+        return None
+    
+    try:
+        response = s3_client.generate_presigned_url(
+            'get_object',
+            Params={'Bucket': Config.AWS_S3_BUCKET_NAME, 'Key': s3_key},
+            ExpiresIn=expiration
+        )
+        return response
+    except Exception as e:
+        logging.error(f"Failed to generate presigned URL: {e}")
+        return None
 
 def ollama_api_call(model_name: str, messages: list, endpoint_url: str, format_json: bool = False):
     """Generic function to call an Ollama API endpoint."""
@@ -78,14 +132,15 @@ def map_guard_to_scode(label: str) -> SCode:
     code = label.split(" ")[-1]
     return mapping.get(code, SCode.S6) # Default to S6 if not found
 
-def generate_pdf_report(report_data: RedTeamReport) -> str:
-    """Generates a PDF report and saves it."""
+def generate_pdf_report(report_data: RedTeamReport) -> tuple[str, str]:
+    """Generates a PDF report, uploads to S3, and returns local path and S3 URL."""
     if not os.path.exists("reports"):
         os.makedirs("reports")
     
     # Generate UUID-based filename
     report_uuid = str(uuid.uuid4())
-    file_path = f"reports/redteam_report_{report_uuid}.pdf"
+    local_file_path = f"reports/redteam_report_{report_uuid}.pdf"
+    s3_key = f"{Config.AWS_S3_BUCKET_KEY}/reports/redteam_report_{report_uuid}.pdf"
     
     # Fetch deployment and model details
     deployment = deployments_collection.find_one({"_id": report_data.deploymentId})
@@ -93,7 +148,7 @@ def generate_pdf_report(report_data: RedTeamReport) -> str:
     if deployment:
         model_info = models_collection.find_one({"_id": deployment['modelId']})
     
-    doc = SimpleDocTemplate(file_path, pagesize=letter)
+    doc = SimpleDocTemplate(local_file_path, pagesize=letter)
     styles = getSampleStyleSheet()
     story = []
 
@@ -187,8 +242,19 @@ def generate_pdf_report(report_data: RedTeamReport) -> str:
         story.append(Paragraph("No conversation data available.", styles['Normal']))
 
     doc.build(story)
-    logging.info(f"PDF report generated: {file_path}")
-    return file_path
+    logging.info(f"PDF report generated locally: {local_file_path}")
+    
+    # Upload to S3
+    s3_url = upload_to_s3(local_file_path, s3_key)
+    
+    # Clean up local file after upload
+    try:
+        os.remove(local_file_path)
+        logging.info(f"Cleaned up local file: {local_file_path}")
+    except Exception as e:
+        logging.warning(f"Failed to clean up local file: {e}")
+    
+    return s3_key, s3_url
 
 
 def run_red_teaming_in_background(deployment_id_str: str):
@@ -391,11 +457,13 @@ IMPORTANT:
         result = reports_collection.insert_one(report_dict)
         report.id = result.inserted_id
         
-        # Generate PDF and update the doc path
-        pdf_path = generate_pdf_report(report)
-        reports_collection.update_one({"_id": report.id}, {"$set": {"reportDoc": pdf_path}})
-
-        logging.info(f"[{deployment_id_str}] Red teaming complete. Report generated: {pdf_path}")
+        # Generate PDF and upload to S3
+        s3_key, s3_url = generate_pdf_report(report)
+        if s3_url:
+            reports_collection.update_one({"_id": report.id}, {"$set": {"reportDoc": s3_key, "reportUrl": s3_url}})
+            logging.info(f"[{deployment_id_str}] Red teaming complete. Report uploaded to S3: {s3_url}")
+        else:
+            logging.error(f"[{deployment_id_str}] Failed to upload report to S3")
 
 
 # --- API Endpoints ---
@@ -916,7 +984,8 @@ def get_red_team_status(deployment_id: str):
             "reportId": str(latest_report['_id']),
             "safe": latest_report['safe'],
             "createdAt": latest_report['createdAt'],
-            "reportPath": latest_report.get('reportDoc')
+            "reportUrl": latest_report.get('reportUrl'),  # S3 URL
+            "s3Key": latest_report.get('reportDoc')  # S3 key
         })
     except Exception as e:
         logging.error(f"Error getting red team status: {e}")
@@ -925,22 +994,53 @@ def get_red_team_status(deployment_id: str):
 # Add endpoint to download red team report
 @app.route("/api/v1/reports/<report_id>/download", methods=["GET"])
 def download_report(report_id: str):
-    """Download a red team report PDF."""
+    """Download a red team report PDF from S3."""
     try:
-        from flask import send_file
-        
         report = reports_collection.find_one({"_id": ObjectId(report_id)})
         if not report:
             return jsonify({"error": "Report not found"}), 404
         
-        report_path = report.get('reportDoc')
-        if not report_path or not os.path.exists(report_path):
+        s3_key = report.get('reportDoc')
+        if not s3_key:
             return jsonify({"error": "Report file not found"}), 404
         
-        return send_file(report_path, as_attachment=True, download_name=f"red_team_report_{report_id}.pdf")
+        # Generate presigned URL for download
+        presigned_url = generate_presigned_url(s3_key, expiration=3600)  # 1 hour expiry
+        if not presigned_url:
+            return jsonify({"error": "Failed to generate download URL"}), 500
+        
+        # Redirect to presigned URL
+        return redirect(presigned_url)
     except Exception as e:
         logging.error(f"Error downloading report: {e}")
         return jsonify({"error": f"Error downloading report: {str(e)}"}), 500
+
+# Add endpoint to get direct S3 URL
+@app.route("/api/v1/reports/<report_id>/url", methods=["GET"])
+def get_report_url(report_id: str):
+    """Get a presigned URL for the report."""
+    try:
+        report = reports_collection.find_one({"_id": ObjectId(report_id)})
+        if not report:
+            return jsonify({"error": "Report not found"}), 404
+        
+        s3_key = report.get('reportDoc')
+        if not s3_key:
+            return jsonify({"error": "Report file not found"}), 404
+        
+        # Generate presigned URL
+        presigned_url = generate_presigned_url(s3_key, expiration=3600)
+        if not presigned_url:
+            return jsonify({"error": "Failed to generate URL"}), 500
+        
+        return jsonify({
+            "downloadUrl": presigned_url,
+            "expiresIn": 3600,
+            "reportId": report_id
+        })
+    except Exception as e:
+        logging.error(f"Error getting report URL: {e}")
+        return jsonify({"error": f"Error getting report URL: {str(e)}"}), 500
 
 @app.route("/api/v1/deployments", methods=["GET"])
 def list_deployments():
