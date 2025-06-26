@@ -7,6 +7,8 @@ import { Badge } from '@/components/ui/badge';
 import { Sparkles, Star, Download, Users } from 'lucide-react';
 import DeploymentModal from '@/components/DeploymentModal';
 import { toast } from '@/components/ui/sonner';
+import api1 from "@/lib/api1";
+import { useEffect } from 'react';
 
 const ModelGallery = () => {
   const [selectedModel, setSelectedModel] = useState<any>(null);
@@ -16,75 +18,113 @@ const ModelGallery = () => {
   const [deploymentStep, setDeploymentStep] = useState('');
   const [deploymentSuccess, setDeploymentSuccess] = useState(false);
   const [deploymentError, setDeploymentError] = useState(false);
+  type Model = {
+  _id: string;
+  name: string;
+  provider: string;
+  tags: string[];
+  parameters: number;
+  createdAt: string;
+  updatedAt: string;
+};
 
-  const models = [
-    {
-      id: 1,
-      name: 'GPT-4',
-      source: 'OpenAI',
-      icon: '🧠',
-      description: 'Most capable GPT model with improved reasoning',
-      rating: 4.9,
-      downloads: '1.2M',
-      tags: ['Text Generation', 'Reasoning', 'Code'],
-      defaultPrompt: 'You are GPT-4, a helpful AI assistant created by OpenAI.'
-    },
-    {
-      id: 2,
-      name: 'Claude-3 Sonnet',
-      source: 'Anthropic',
-      icon: '🎭',
-      description: 'Balanced model with strong reasoning capabilities',
-      rating: 4.8,
-      downloads: '850K',
-      tags: ['Reasoning', 'Analysis', 'Writing'],
-      defaultPrompt: 'You are Claude, an AI assistant created by Anthropic.'
-    },
-    {
-      id: 3,
-      name: 'Llama 2 70B',
-      source: 'Hugging Face',
-      icon: '🦙',
-      description: 'Open-source large language model by Meta',
-      rating: 4.7,
-      downloads: '2.1M',
-      tags: ['Open Source', 'Text Generation', 'Chat'],
-      defaultPrompt: 'You are Llama 2, a helpful, respectful and honest assistant.'
-    },
-    {
-      id: 4,
-      name: 'Mistral 7B Instruct',
-      source: 'Hugging Face',
-      icon: '🌪️',
-      description: 'Efficient instruction-following model',
-      rating: 4.6,
-      downloads: '1.8M',
-      tags: ['Instruction Following', 'Efficient', 'Multilingual'],
-      defaultPrompt: 'You are Mistral 7B, an AI assistant designed to follow instructions carefully.'
-    },
-    {
-      id: 5,
-      name: 'CodeLlama 34B',
-      source: 'Hugging Face',
-      icon: '💻',
-      description: 'Specialized model for code generation and understanding',
-      rating: 4.8,
-      downloads: '950K',
-      tags: ['Code Generation', 'Programming', 'Debug'],
-      defaultPrompt: 'You are CodeLlama, an AI coding assistant. Help users with programming tasks.'
-    },
-    {
-      id: 6,
-      name: 'DALL-E 3',
-      source: 'OpenAI',
-      icon: '🎨',
-      description: 'Advanced image generation model',
-      rating: 4.9,
-      downloads: '750K',
-      tags: ['Image Generation', 'Art', 'Creative'],
-      defaultPrompt: 'Generate detailed, creative images based on text descriptions.'
-    }
-  ];
+const iconMap: { [key: string]: string } = {
+  Ollama: '🦙',
+  HuggingFace: '🤗',
+  OpenAI: '🧠',
+  Deepseek: '🔍',
+  Anthropic: '🎭',
+  Mistral: '🌪️',
+  Default: '🤖',
+};
+
+
+
+  const [models, setModels] = useState<Model[]>([]);
+  
+
+  useEffect(() => {
+    const fetchModels = async () => {
+      try {
+        const response = await api1.get<Model[]>('/api/models');
+        setModels(response.data);
+      } catch (err: any) {
+        console.error(err);
+       
+      } 
+      
+    };
+    fetchModels();
+  }, []);
+
+  // const models = [
+  //   {
+  //     id: 1,
+  //     name: 'GPT-4',
+  //     source: 'OpenAI',
+  //     icon: '🧠',
+  //     description: 'Most capable GPT model with improved reasoning',
+  //     rating: 4.9,
+  //     downloads: '1.2M',
+  //     tags: ['Text Generation', 'Reasoning', 'Code'],
+  //     defaultPrompt: 'You are GPT-4, a helpful AI assistant created by OpenAI.'
+  //   },
+  //   {
+  //     id: 2,
+  //     name: 'Claude-3 Sonnet',
+  //     source: 'Anthropic',
+  //     icon: '🎭',
+  //     description: 'Balanced model with strong reasoning capabilities',
+  //     rating: 4.8,
+  //     downloads: '850K',
+  //     tags: ['Reasoning', 'Analysis', 'Writing'],
+  //     defaultPrompt: 'You are Claude, an AI assistant created by Anthropic.'
+  //   },
+  //   {
+  //     id: 3,
+  //     name: 'Llama 2 70B',
+  //     source: 'Hugging Face',
+  //     icon: '🦙',
+  //     description: 'Open-source large language model by Meta',
+  //     rating: 4.7,
+  //     downloads: '2.1M',
+  //     tags: ['Open Source', 'Text Generation', 'Chat'],
+  //     defaultPrompt: 'You are Llama 2, a helpful, respectful and honest assistant.'
+  //   },
+  //   {
+  //     id: 4,
+  //     name: 'Mistral 7B Instruct',
+  //     source: 'Hugging Face',
+  //     icon: '🌪️',
+  //     description: 'Efficient instruction-following model',
+  //     rating: 4.6,
+  //     downloads: '1.8M',
+  //     tags: ['Instruction Following', 'Efficient', 'Multilingual'],
+  //     defaultPrompt: 'You are Mistral 7B, an AI assistant designed to follow instructions carefully.'
+  //   },
+  //   {
+  //     id: 5,
+  //     name: 'CodeLlama 34B',
+  //     source: 'Hugging Face',
+  //     icon: '💻',
+  //     description: 'Specialized model for code generation and understanding',
+  //     rating: 4.8,
+  //     downloads: '950K',
+  //     tags: ['Code Generation', 'Programming', 'Debug'],
+  //     defaultPrompt: 'You are CodeLlama, an AI coding assistant. Help users with programming tasks.'
+  //   },
+  //   {
+  //     id: 6,
+  //     name: 'DALL-E 3',
+  //     source: 'OpenAI',
+  //     icon: '🎨',
+  //     description: 'Advanced image generation model',
+  //     rating: 4.9,
+  //     downloads: '750K',
+  //     tags: ['Image Generation', 'Art', 'Creative'],
+  //     defaultPrompt: 'Generate detailed, creative images based on text descriptions.'
+  //   }
+  // ];
 
   const openDeployModal = (model: any) => {
     setSelectedModel(model);
@@ -97,25 +137,25 @@ const ModelGallery = () => {
     setIsDeploying(true);
     setDeploymentSuccess(false);
     setDeploymentError(false);
-    
+
     const steps = [
       'Deploying Model with New System Prompt...',
       'Building Secure Container...',
       'Deployment in Progress...'
     ];
-    
+
     let currentStep = 0;
-    
+
     const stepInterval = setInterval(() => {
       if (currentStep < steps.length) {
         setDeploymentStep(steps[currentStep]);
         currentStep++;
       } else {
         clearInterval(stepInterval);
-        
+
         // Simulate random success/failure
         const isSuccess = Math.random() > 0.3;
-        
+
         if (isSuccess) {
           setDeploymentStep('Deployment Successful!');
           setDeploymentSuccess(true);
@@ -144,6 +184,8 @@ const ModelGallery = () => {
     setCustomPrompt(randomSuggestion);
   };
 
+
+
   return (
     <div className="space-y-8">
       <div>
@@ -153,28 +195,29 @@ const ModelGallery = () => {
 
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
         {models.map((model) => (
-          <Card key={model.id} className="glass-effect border-cyan-500/20 hover:glow-cyan transition-all duration-300 hover:scale-105">
+          <Card key={model._id} className="glass-effect border-cyan-500/20 hover:glow-cyan transition-all duration-300 hover:scale-105">
             <CardContent className="p-6">
               <div className="flex items-start justify-between mb-4">
                 <div className="flex items-center space-x-3">
-                  <div className="text-3xl">{model.icon}</div>
+                  <div className="text-3xl">{ iconMap[model.provider] || iconMap.Default}</div>
+
                   <div>
                     <h3 className="text-lg font-semibold text-white">{model.name}</h3>
-                    <p className="text-sm text-cyan-400">{model.source}</p>
+                    <p className="text-sm text-cyan-400">{model.provider}</p>
                   </div>
                 </div>
                 <div className="flex items-center space-x-1 text-yellow-400">
                   <Star size={16} fill="currentColor" />
-                  <span className="text-sm">{model.rating}</span>
+                  <span className="text-sm"></span>
                 </div>
               </div>
 
-              <p className="text-gray-300 text-sm mb-4">{model.description}</p>
+              <p className="text-gray-300 text-sm mb-4">{model.parameters}</p>
 
               <div className="flex items-center space-x-4 mb-4 text-sm text-gray-400">
                 <div className="flex items-center space-x-1">
                   <Download size={14} />
-                  <span>{model.downloads}</span>
+                  
                 </div>
               </div>
 
@@ -203,11 +246,12 @@ const ModelGallery = () => {
           <DialogContent className="glass-effect border-cyan-500/20 max-w-2xl">
             <DialogHeader>
               <DialogTitle className="text-white flex items-center space-x-2">
-                <span className="text-2xl">{selectedModel.icon}</span>
+                <span className="text-2xl">{selectedModel.icon || iconMap[selectedModel.provider] || iconMap.Default}</span>
+
                 <span>Deploy {selectedModel.name}</span>
               </DialogTitle>
             </DialogHeader>
-            
+
             <div className="space-y-6">
               <Card className="glass-effect border-cyan-500/20">
                 <CardContent className="p-4">
@@ -245,7 +289,7 @@ const ModelGallery = () => {
                     AI Suggestion
                   </Button>
                 </div>
-                
+
                 <Textarea
                   value={customPrompt}
                   onChange={(e) => setCustomPrompt(e.target.value)}
