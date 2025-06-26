@@ -1,9 +1,9 @@
-
 import { useState } from 'react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Send } from 'lucide-react';
+import api2 from "@/lib/api2";
 
 interface ChatModalProps {
   model: any;
@@ -15,18 +15,34 @@ const ChatModal = ({ model, onClose }: ChatModalProps) => {
     { role: 'assistant', content: `Hello! I'm ${model.name}. How can I help you today?` }
   ]);
   const [input, setInput] = useState('');
+  const [loading, setLoading] = useState(false);
 
-  const sendMessage = () => {
-    if (!input.trim()) return;
-    
-    const newMessages = [
-      ...messages,
-      { role: 'user', content: input },
-      { role: 'assistant', content: 'This is a demo response from the model. In a real implementation, this would be connected to the actual model API.' }
-    ];
-    
-    setMessages(newMessages);
+  const sendMessage = async () => {
+    if (!input.trim() || loading) return;
+
+    const userMessage = { role: 'user', content: input };
+    const updatedMessages = [...messages, userMessage];
+    setMessages(updatedMessages);
     setInput('');
+    setLoading(true);
+
+    try {
+      const res = await api2.post(`/api/v1/proxy/${model.containerName}/chat`, {
+        messages: [userMessage] // Only last user message is needed
+      });
+
+      const assistantMessage = res.data.message;
+      setMessages((prev) => [...prev, assistantMessage]);
+    } catch (err: any) {
+      const errorMessage = {
+        role: 'assistant',
+        content: '⚠️ Failed to get a response from the model.'
+      };
+      setMessages((prev) => [...prev, errorMessage]);
+      console.error('Chat error:', err);
+    } finally {
+      setLoading(false);
+    }
   };
 
   return (
@@ -53,6 +69,11 @@ const ChatModal = ({ model, onClose }: ChatModalProps) => {
                 {message.content}
               </div>
             ))}
+            {loading && (
+              <div className="p-3 rounded-lg max-w-xs bg-gray-700/50 text-gray-100 animate-pulse">
+                Thinking...
+              </div>
+            )}
           </div>
           
           <div className="flex space-x-2">
@@ -61,10 +82,11 @@ const ChatModal = ({ model, onClose }: ChatModalProps) => {
               onChange={(e) => setInput(e.target.value)}
               placeholder="Type your message..."
               className="bg-gray-800/50 border-gray-600 text-white"
-              onKeyPress={(e) => e.key === 'Enter' && sendMessage()}
+              onKeyDown={(e) => e.key === 'Enter' && sendMessage()}
             />
             <Button
               onClick={sendMessage}
+              disabled={loading}
               className="bg-cyan-500 hover:bg-cyan-600 text-white"
             >
               <Send size={16} />
