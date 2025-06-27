@@ -516,7 +516,22 @@ def create_deployment():
     except Exception as e:
         return jsonify({"error": f"Invalid request data: {e}"}), 400
 
+    # 1. Create Deployment record in DB
     container_name = f"nirikshak-deployment-{uuid.uuid4().hex[:8]}"
+    deployment = Deployment(
+        modelId=ObjectId(req_data.modelId),
+        name=req_data.name,
+        description=req_data.description,
+        systemPrompt=req_data.systemPrompt,
+        temperature=req_data.temperature,
+        endpoint=f"/proxy/{container_name}",
+        containerName=container_name
+    )
+    result = deployments_collection.insert_one(deployment.model_dump(by_alias=True))
+    deployment.id = result.inserted_id
+
+    logging.info(f"Created deployment record: {deployment.id} with container name: {container_name}")
+
     # 2. Run Docker container with Ollama
     try:
         logging.info(f"Starting Ollama container for model: {model_info['name']}")
@@ -528,6 +543,10 @@ def create_deployment():
             logging.info("Successfully pulled ollama/ollama:latest")
         except Exception as pull_error:
             logging.error(f"Failed to pull Ollama image: {pull_error}")
+            deployments_collection.update_one(
+                {"_id": deployment.id},
+                {"$set": {"status": DeploymentStatus.ERROR}}
+            )
             return jsonify({"error": f"Failed to pull Ollama image: {str(pull_error)}"}), 500
         
         # Create and start the container with proper port mapping
@@ -548,6 +567,12 @@ def create_deployment():
         
         logging.info(f"Container {container_name} created with ID: {container.id}")
         
+        # Update deployment with container ID immediately
+        deployments_collection.update_one(
+            {"_id": deployment.id},
+            {"$set": {"containerId": container.id}}
+        )
+        
         # Wait for container to be ready and check if it's running
         import time
         max_wait_time = 60  # 60 seconds max wait
@@ -562,6 +587,10 @@ def create_deployment():
             elif container.status == 'exited':
                 logs = container.logs().decode('utf-8')
                 logging.error(f"Container {container_name} exited. Logs: {logs}")
+                deployments_collection.update_one(
+                    {"_id": deployment.id},
+                    {"$set": {"status": DeploymentStatus.ERROR}}
+                )
                 return jsonify({"error": f"Container exited unexpectedly. Logs: {logs}"}), 500
             
             time.sleep(wait_interval)
@@ -570,6 +599,10 @@ def create_deployment():
         
         if container.status != 'running':
             logging.error(f"Container {container_name} failed to start within {max_wait_time} seconds")
+            deployments_collection.update_one(
+                {"_id": deployment.id},
+                {"$set": {"status": DeploymentStatus.ERROR}}
+            )
             return jsonify({"error": "Container failed to start within timeout"}), 500
         
         # Wait a bit more for Ollama service to be ready inside container
@@ -587,6 +620,10 @@ def create_deployment():
             logging.error("No port mapping found for container")
             container.stop()
             container.remove()
+            deployments_collection.update_one(
+                {"_id": deployment.id},
+                {"$set": {"status": DeploymentStatus.ERROR}}
+            )
             return jsonify({"error": "Container port mapping failed"}), 500
         
         # Test if Ollama API is responding
@@ -601,8 +638,8 @@ def create_deployment():
                     logging.info("Ollama API is responding")
                     api_ready = True
                     break
-            except requests.RequestException as e:
-                logging.warning(f"Ollama API not ready yet: {e}")
+            except requests.RequestException:
+                pass
             
             time.sleep(2)
             api_waited += 2
@@ -612,6 +649,10 @@ def create_deployment():
             logging.error("Ollama API failed to become ready")
             container.stop()
             container.remove()
+            deployments_collection.update_one(
+                {"_id": deployment.id},
+                {"$set": {"status": DeploymentStatus.ERROR}}
+            )
             return jsonify({"error": "Ollama API failed to start"}), 500
         
         # Pull the model inside the container
@@ -628,6 +669,10 @@ def create_deployment():
                 logging.error(f"Failed to pull model {model_info['name']}: {output}")
                 container.stop()
                 container.remove()
+                deployments_collection.update_one(
+                    {"_id": deployment.id},
+                    {"$set": {"status": DeploymentStatus.ERROR}}
+                )
                 return jsonify({"error": f"Failed to pull model: {output}"}), 500
             
             logging.info(f"Successfully pulled model {model_info['name']}")
@@ -636,58 +681,63 @@ def create_deployment():
             logging.error(f"Error executing model pull command: {exec_error}")
             container.stop()
             container.remove()
+            deployments_collection.update_one(
+                {"_id": deployment.id},
+                {"$set": {"status": DeploymentStatus.ERROR}}
+            )
             return jsonify({"error": f"Failed to execute model pull: {str(exec_error)}"}), 500
         
         # Test the model with a simple request
         logging.info("Testing model with a simple request...")
-        time.sleep(5)  # Give model time to load
-        
-        try:
-            test_payload = {
-                "model": model_info['name'],
-                "messages": [{"role": "user", "content": "Hello"}],
-                "stream": False
-            }
-            test_response = requests.post(f"{container_url}/api/chat", json=test_payload, timeout=30)
-            if test_response.status_code == 200:
-                logging.info("Model is responding to chat requests")
-            else:
-                logging.warning(f"Model test returned status {test_response.status_code}")
-        except Exception as test_error:
-            logging.warning(f"Could not test model: {test_error}")
-        
-        # 1. Create Deployment record in DB (only after all above steps succeed)
-        deployment = Deployment(
-            modelId=ObjectId(req_data.modelId),
-            name=req_data.name,
-            description=req_data.description,
-            systemPrompt=req_data.systemPrompt,
-            temperature=req_data.temperature,
-            endpoint=f"/proxy/{container_name}",
-            containerName=container_name
-        )
-        result = deployments_collection.insert_one(deployment.model_dump(by_alias=True))
-        deployment.id = result.inserted_id
+        # Wait longer to allow model to load (was 5s)
+        import time
+        time.sleep(30)  # Increased wait time for model loading
 
-        # Update deployment with container ID immediately
+        # Add retry loop for initial chat request
+        test_payload = {
+            "model": model_info['name'],
+            "messages": [{"role": "user", "content": "Hello"}],
+            "stream": False
+        }
+        max_retries = 5
+        retry_delay = 10  # seconds
+        for attempt in range(max_retries):
+            try:
+                test_response = requests.post(f"{container_url}/api/chat", json=test_payload, timeout=60)
+                if test_response.status_code == 200:
+                    logging.info("Model is responding to chat requests")
+                    break
+                else:
+                    logging.warning(f"Model test returned status {test_response.status_code}")
+            except Exception as test_error:
+                logging.warning(f"Could not test model (attempt {attempt+1}/{max_retries}): {test_error}")
+            if attempt < max_retries - 1:
+                logging.info(f"Waiting {retry_delay}s before retrying model test...")
+                time.sleep(retry_delay)
+        else:
+            logging.error("Model did not respond after multiple attempts")
+        
+        # Update deployment status to DEPLOYED
         deployments_collection.update_one(
             {"_id": deployment.id},
-            {"$set": {"containerId": container.id, "status": DeploymentStatus.DEPLOYED}}
+            {"$set": {"status": DeploymentStatus.DEPLOYED}}
         )
-
+        
         logging.info(f"Successfully deployed {model_info['name']} in container {container_name} at {container_url}")
-
+        
     except docker.errors.APIError as e:
-        logging.error(f"Docker API error during deployment: {e}")
+        logging.error(f"Docker API error for deployment {deployment.id}: {e}")
+        deployments_collection.update_one(
+            {"_id": deployment.id},
+            {"$set": {"status": DeploymentStatus.ERROR}}
+        )
         return jsonify({"error": f"Docker API error: {str(e)}"}), 500
-    except requests.exceptions.ReadTimeout as e:
-        logging.error(f"Ollama API call timed out: {e}")
-        return jsonify({"error": "Ollama API call timed out. Please try again later."}), 504
-    except requests.exceptions.ConnectionError as e:
-        logging.error(f"Ollama API connection error: {e}")
-        return jsonify({"error": "Ollama API connection error. Please try again later."}), 502
     except Exception as e:
-        logging.error(f"Unexpected error during deployment: {e}")
+        logging.error(f"Unexpected error during deployment {deployment.id}: {e}")
+        deployments_collection.update_one(
+            {"_id": deployment.id},
+            {"$set": {"status": DeploymentStatus.ERROR}}
+        )
         return jsonify({"error": f"Deployment failed: {str(e)}"}), 500
 
     # 3. Start Red Teaming in background thread
