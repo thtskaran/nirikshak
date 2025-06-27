@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo, useCallback, memo } from 'react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
@@ -63,6 +63,7 @@ const ScanModal = ({ model, onClose }: ScanModalProps) => {
   const [originalPrompt, setOriginalPrompt] = useState<string>('');
   const [showDiffView, setShowDiffView] = useState(false);
   const [isEditingSuggested, setIsEditingSuggested] = useState(false);
+  const [tempSuggestedPrompt, setTempSuggestedPrompt] = useState<string>(''); // Temporary state for editing
 
   // Fetch deployment data on component mount
   useEffect(() => {
@@ -170,7 +171,18 @@ const ScanModal = ({ model, onClose }: ScanModalProps) => {
               
               setReports([newReport]);
             } else {
-              // Fallback to mock data
+              // Fallback to mock data with suggested prompt
+              setOriginalPrompt(suggestedPrompt);
+              setSuggestedNewPrompt(`${suggestedPrompt}
+
+SECURITY ENHANCEMENTS:
+- Always verify user identity before processing sensitive requests
+- Implement content filtering for harmful or inappropriate content
+- Add context awareness to prevent prompt injection attacks
+- Include safety disclaimers for potentially dangerous information
+- Monitor for social engineering attempts and respond appropriately`);
+              setShowDiffView(true);
+              
               const newReport: RedTeamReport = {
                 _id: `report_${Date.now()}`,
                 deploymentId: model._id,
@@ -195,8 +207,18 @@ const ScanModal = ({ model, onClose }: ScanModalProps) => {
               setReports([newReport]);
             }
           } catch (err) {
-            console.log('Failed to get scan results, using mock data');
-            // Keep existing mock data generation
+            console.log('Failed to get scan results, using mock data with suggested prompt');
+            // Always provide a mock suggested prompt for testing
+            setOriginalPrompt(suggestedPrompt);
+            setSuggestedNewPrompt(`${suggestedPrompt}
+
+SECURITY ENHANCEMENTS:
+- Always verify user identity before processing sensitive requests
+- Implement content filtering for harmful or inappropriate content
+- Add context awareness to prevent prompt injection attacks
+- Include safety disclaimers for potentially dangerous information
+- Monitor for social engineering attempts and respond appropriately`);
+            setShowDiffView(true);
           }
           
           setScanComplete(true);
@@ -210,16 +232,15 @@ const ScanModal = ({ model, onClose }: ScanModalProps) => {
           return;
         }
 
-        progress += 0.83; // Increment for 2 minutes total (100 / 120 seconds * 1000ms)
+        progress += 0.83;
         setScanProgress(progress);
         
-        // Update step based on progress
         const currentStep = scanSteps.find(s => progress >= s.duration && progress < s.duration + 10);
         if (currentStep && currentStep.step !== scanStep) {
           setScanStep(currentStep.step);
         }
         
-      }, 1000); // Update every 1000ms for smooth progress
+      }, 1000);
     }
 
     return () => {
@@ -470,10 +491,12 @@ const ScanModal = ({ model, onClose }: ScanModalProps) => {
     }
   };
 
-  // Add diff utility functions
-  const generateDiffLines = (oldText: string, newText: string) => {
-    const oldLines = oldText.split('\n');
-    const newLines = newText.split('\n');
+  // Memoize the diff calculation - only recalculate when saved prompts change
+  const diffLines = useMemo(() => {
+    if (!originalPrompt || !suggestedNewPrompt) return [];
+    
+    const oldLines = originalPrompt.split('\n');
+    const newLines = suggestedNewPrompt.split('\n');
     const maxLines = Math.max(oldLines.length, newLines.length);
     
     const diffLines = [];
@@ -494,11 +517,39 @@ const ScanModal = ({ model, onClose }: ScanModalProps) => {
     }
     
     return diffLines;
-  };
+  }, [originalPrompt, suggestedNewPrompt]); // Only depends on saved prompts
 
-  const DiffView = () => {
-    const diffLines = generateDiffLines(originalPrompt, suggestedNewPrompt);
-    
+  // Memoize the change count
+  const changeCount = useMemo(() => {
+    return diffLines.filter(line => line.type !== 'unchanged').length;
+  }, [diffLines]);
+
+  // Handle save/edit toggle for suggested prompt
+  const handleSaveSuggestedPrompt = useCallback(() => {
+    if (!isEditingSuggested) {
+      // Start editing - set temp value to current value
+      setTempSuggestedPrompt(suggestedNewPrompt);
+      setIsEditingSuggested(true);
+    } else {
+      // Save changes - update the actual value
+      setSuggestedNewPrompt(tempSuggestedPrompt);
+      setIsEditingSuggested(false);
+    }
+  }, [isEditingSuggested, suggestedNewPrompt, tempSuggestedPrompt]);
+
+  // Cancel editing - prevent re-renders during editing
+  const handleCancelSuggestedEdit = useCallback(() => {
+    setTempSuggestedPrompt('');
+    setIsEditingSuggested(false);
+  }, []);
+
+  // Memoize the textarea onChange to prevent re-renders
+  const handleTempPromptChange = useCallback((e: React.ChangeEvent<HTMLTextAreaElement>) => {
+    setTempSuggestedPrompt(e.target.value);
+  }, []);
+
+  // Memoize the DiffView component with React.memo
+  const DiffView = memo(() => {
     return (
       <Card className="bg-gray-800/50 border-gray-700/50">
         <CardContent className="p-6">
@@ -520,15 +571,6 @@ const ScanModal = ({ model, onClose }: ScanModalProps) => {
                 <Copy size={16} className="mr-2" />
                 Copy New
               </Button>
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={() => setIsEditingSuggested(!isEditingSuggested)}
-                className="text-orange-400 hover:bg-orange-500/20"
-              >
-                <Edit size={16} className="mr-2" />
-                {isEditingSuggested ? 'Save' : 'Edit'}
-              </Button>
             </div>
           </div>
           
@@ -543,14 +585,39 @@ const ScanModal = ({ model, onClose }: ScanModalProps) => {
               </div>
             </div>
             
-            {/* Suggested Prompt */}
+            {/* Suggested Prompt with Edit Toggle */}
             <div className="space-y-2">
-              <h4 className="text-sm font-medium text-green-400">Suggested Prompt</h4>
+              <div className="flex items-center justify-between">
+                <h4 className="text-sm font-medium text-green-400">Suggested Prompt</h4>
+                <div className="flex gap-2">
+                  {isEditingSuggested && (
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={handleCancelSuggestedEdit}
+                      className="text-gray-400 hover:bg-gray-500/20"
+                    >
+                      Cancel
+                    </Button>
+                  )}
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={handleSaveSuggestedPrompt}
+                    className="text-orange-400 hover:bg-orange-500/20"
+                  >
+                    <Edit size={16} className="mr-2" />
+                    {isEditingSuggested ? 'Save' : 'Edit'}
+                  </Button>
+                </div>
+              </div>
+              
               {isEditingSuggested ? (
                 <Textarea
-                  value={suggestedNewPrompt}
-                  onChange={(e) => setSuggestedNewPrompt(e.target.value)}
-                  className="min-h-64 bg-gray-900/50 border-green-500/30 text-white font-mono text-sm"
+                  value={tempSuggestedPrompt}
+                  onChange={handleTempPromptChange}
+                  className="min-h-64 bg-gray-900/50 border-green-500/30 text-white font-mono text-sm resize-none"
+                  placeholder="Edit the suggested prompt here..."
                 />
               ) : (
                 <div className="bg-gray-900/50 border border-green-500/30 rounded-lg p-3 max-h-64 overflow-y-auto">
@@ -562,36 +629,49 @@ const ScanModal = ({ model, onClose }: ScanModalProps) => {
             </div>
           </div>
           
-          {/* Diff View */}
-          <div className="mt-4 space-y-2">
-            <h4 className="text-sm font-medium text-cyan-400">Changes</h4>
-            <div className="bg-gray-900/50 border border-gray-600 rounded-lg p-3 max-h-32 overflow-y-auto">
-              <div className="font-mono text-xs space-y-1">
-                {diffLines.map((line, idx) => (
-                  <div
-                    key={idx}
-                    className={`${
-                      line.type === 'removed' 
-                        ? 'bg-red-500/20 text-red-300' 
-                        : line.type === 'added'
-                        ? 'bg-green-500/20 text-green-300'
-                        : 'text-gray-400'
-                    } px-2 py-1 rounded`}
-                  >
-                    <span className="text-gray-500 mr-2">{line.lineNum}</span>
-                    <span className="mr-1">
-                      {line.type === 'removed' ? '-' : line.type === 'added' ? '+' : ' '}
-                    </span>
-                    {line.text}
+          {/* Diff View - Only show when not editing */}
+          {!isEditingSuggested && (
+            <div className="mt-4 space-y-2">
+              <div className="flex items-center justify-between">
+                <h4 className="text-sm font-medium text-cyan-400">Changes Preview</h4>
+                <span className="text-xs text-gray-500">
+                  {changeCount} changes
+                </span>
+              </div>
+              <div className="bg-gray-900/50 border border-gray-600 rounded-lg p-3 max-h-32 overflow-y-auto">
+                {changeCount === 0 ? (
+                  <div className="text-gray-500 text-xs text-center py-2">
+                    No changes detected
                   </div>
-                ))}
+                ) : (
+                  <div className="font-mono text-xs space-y-1">
+                    {diffLines
+                      .filter(line => line.type !== 'unchanged')
+                      .map((line, idx) => (
+                      <div
+                        key={`${line.type}-${line.lineNum}-${idx}`}
+                        className={`${
+                          line.type === 'removed' 
+                            ? 'bg-red-500/20 text-red-300' 
+                            : 'bg-green-500/20 text-green-300'
+                        } px-2 py-1 rounded`}
+                      >
+                        <span className="text-gray-500 mr-2">{line.lineNum}</span>
+                        <span className="mr-1">
+                          {line.type === 'removed' ? '-' : '+'}
+                        </span>
+                        {line.text}
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
             </div>
-          </div>
+          )}
         </CardContent>
       </Card>
     );
-  };
+  }, [originalPrompt, suggestedNewPrompt, isEditingSuggested, tempSuggestedPrompt, changeCount, diffLines, handleSaveSuggestedPrompt, handleCancelSuggestedEdit, handleTempPromptChange]);
 
   return (
     <Dialog open={true} onOpenChange={onClose}>

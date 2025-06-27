@@ -1,5 +1,4 @@
-
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -11,6 +10,17 @@ import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/component
 import { ChevronDown, ChevronRight, AlertTriangle } from 'lucide-react';
 import { toast } from '@/components/ui/sonner';
 import DeploymentModal from '@/components/DeploymentModal';
+import api2 from '@/lib/api2';
+import { useNavigate } from 'react-router-dom';
+
+interface Model {
+  _id: string;
+  name: string;
+  provider: string;
+  parameters: string;
+  tags: string[];
+  createdAt: string;
+}
 
 const DeployModels = () => {
   const [selectedModel, setSelectedModel] = useState('');
@@ -20,67 +30,99 @@ const DeployModels = () => {
   const [deploymentSuccess, setDeploymentSuccess] = useState(false);
   const [showErrorDetails, setShowErrorDetails] = useState(false);
   const [showAdditionalSettings, setShowAdditionalSettings] = useState(false);
+  const [models, setModels] = useState<Model[]>([]);
+  const [isLoadingModels, setIsLoadingModels] = useState(true);
+  const [deploymentName, setDeploymentName] = useState('');
+  const [deploymentDescription, setDeploymentDescription] = useState('');
   
-  // Settings state
+  // Settings state - keep only relevant ones
   const [temperature, setTemperature] = useState([0.7]);
-  const [topP, setTopP] = useState([0.9]);
-  const [topK, setTopK] = useState(40);
-  const [maxTokens, setMaxTokens] = useState(2048);
   const [systemPrompt, setSystemPrompt] = useState('You are a helpful AI assistant...');
 
-  const ollamaModels = [
-    { id: 'llama2', name: 'Llama 2 7B' },
-    { id: 'mistral', name: 'Mistral 7B' },
-    { id: 'codellama', name: 'Code Llama 7B' },
-    { id: 'neural-chat', name: 'Neural Chat 7B' },
-    { id: 'orca-mini', name: 'Orca Mini 3B' },
-    { id: 'vicuna', name: 'Vicuna 7B' },
-  ];
+  const navigate = useNavigate();
 
-  const handleDeploy = () => {
+  // Fetch models from API
+  useEffect(() => {
+    const fetchModels = async () => {
+      try {
+        setIsLoadingModels(true);
+        const response = await api2.get('/api/v1/models');
+        setModels(response.data);
+      } catch (error) {
+        console.error('Failed to fetch models:', error);
+        toast.error('Failed to load models');
+      } finally {
+        setIsLoadingModels(false);
+      }
+    };
+
+    fetchModels();
+  }, []);
+
+  const handleDeploy = async () => {
     if (!selectedModel) {
       toast.error('Please select a model to deploy');
+      return;
+    }
+
+    if (!deploymentName.trim()) {
+      toast.error('Please enter a deployment name');
       return;
     }
 
     setIsDeploying(true);
     setDeploymentError(false);
     setDeploymentSuccess(false);
-    const steps = [
-      'Uploading Model...',
-      'Building Secure Container...',
-      'Deployment in Progress...'
+
+    // Realistic deployment steps
+    const deploymentSteps = [
+      'Initializing deployment process...',
+      'Connecting to Docker daemon...',
+      'Pulling official Ollama image...',
+      'Creating secure container environment...',
+      'Downloading model files...',
+      'Configuring model parameters...',
+      'Starting container instance...',
+      'Provisioning resources...',
+      'Verifying deployment health...',
+      'Finalizing configuration...'
     ];
-    
-    let currentStep = 0;
-    
-    const stepInterval = setInterval(() => {
-      if (currentStep < steps.length) {
-        setDeploymentStep(steps[currentStep]);
-        currentStep++;
-      } else {
-        clearInterval(stepInterval);
-        
-        // Simulate random success/failure
-        const isSuccess = Math.random() > 0.3;
-        
-        if (isSuccess) {
-          setDeploymentStep('Deployment Successful!');
-          setDeploymentSuccess(true);
-          toast.success('Model deployed successfully!');
-          setTimeout(() => {
-            setIsDeploying(false);
-            setDeploymentSuccess(false);
-            setDeploymentStep('');
-          }, 2000);
-        } else {
-          setIsDeploying(false);
-          setDeploymentStep('');
-          setDeploymentError(true);
-          toast.error('Deployment failed. Please check the error details.');
-        }
+
+    try {
+      const deploymentData = {
+        modelId: selectedModel,
+        name: deploymentName,
+        description: deploymentDescription,
+        systemPrompt: systemPrompt,
+        temperature: temperature[0]
+      };
+
+      // Simulate step-by-step deployment
+      for (let i = 0; i < deploymentSteps.length; i++) {
+        setDeploymentStep(deploymentSteps[i]);
+        await new Promise(resolve => setTimeout(resolve, 1000 + Math.random() * 1000));
       }
-    }, 1500);
+
+      setDeploymentStep('Creating deployment...');
+      const response = await api2.post('/api/v1/deployments', deploymentData);
+      
+      setDeploymentStep('Deployment Successful!');
+      setDeploymentSuccess(true);
+      toast.success(`Model deployed successfully! Container: ${response.data.containerName}`);
+      
+      setTimeout(() => {
+        setIsDeploying(false);
+        setDeploymentSuccess(false);
+        setDeploymentStep('');
+        navigate('/deployed-models'); // Navigate to deployed models page
+      }, 2000);
+    } catch (error: any) {
+      console.error('Deployment failed:', error);
+      setIsDeploying(false);
+      setDeploymentStep('');
+      setDeploymentError(true);
+      toast.error(error.response?.data?.message || 'Deployment failed');
+    }
   };
 
   const handleRedeploy = () => {
@@ -100,31 +142,51 @@ const DeployModels = () => {
         {/* Model Selection */}
         <Card className="glass-effect border-cyan-500/20">
           <CardHeader>
-            <CardTitle className="text-white">Choose Model from Ollama</CardTitle>
+            <CardTitle className="text-white">Choose Model</CardTitle>
           </CardHeader>
           <CardContent className="space-y-6">
             <div>
-              <Label className="text-gray-300">Select Ollama Model</Label>
-              <Select value={selectedModel} onValueChange={setSelectedModel}>
+              <Label className="text-gray-300">Select Model</Label>
+              <Select value={selectedModel} onValueChange={setSelectedModel} disabled={isLoadingModels}>
                 <SelectTrigger className="bg-gray-800/50 border-gray-600 text-white mt-2">
-                  <SelectValue placeholder="Choose a model..." />
+                  <SelectValue placeholder={isLoadingModels ? "Loading models..." : "Choose a model..."} />
                 </SelectTrigger>
                 <SelectContent className="bg-gray-800 border-gray-600">
-                  {ollamaModels.map((model) => (
-                    <SelectItem key={model.id} value={model.id} className="text-white">
-                      {model.name}
+                  {models.map((model) => (
+                    <SelectItem key={model._id} value={model._id} className="text-white">
+                      {model.name} ({model.parameters}) - {model.provider}
                     </SelectItem>
                   ))}
                 </SelectContent>
               </Select>
             </div>
+
+            <div>
+              <Label className="text-gray-300">Deployment Name</Label>
+              <Input
+                value={deploymentName}
+                onChange={(e) => setDeploymentName(e.target.value)}
+                placeholder="Enter deployment name..."
+                className="bg-gray-800/50 border-gray-600 text-white mt-2"
+              />
+            </div>
+
+            <div>
+              <Label className="text-gray-300">Description (Optional)</Label>
+              <Textarea
+                value={deploymentDescription}
+                onChange={(e) => setDeploymentDescription(e.target.value)}
+                placeholder="Describe the purpose of this deployment..."
+                className="bg-gray-800/50 border-gray-600 text-white mt-2"
+              />
+            </div>
             
             <Button 
               onClick={handleDeploy}
-              disabled={isDeploying || !selectedModel}
+              disabled={isDeploying || !selectedModel || isLoadingModels}
               className="w-full bg-cyan-500 hover:bg-cyan-600 text-white glow-cyan"
             >
-              Deploy Model
+              {isLoadingModels ? 'Loading Models...' : 'Deploy Model'}
             </Button>
 
             {/* Error Section */}
@@ -172,11 +234,12 @@ const DeployModels = () => {
         {/* Additional Settings */}
         <Card className="glass-effect border-cyan-500/20">
           <CardHeader>
-            <CardTitle className="text-white">Additional Settings</CardTitle>
+            <CardTitle className="text-white">Configuration Settings</CardTitle>
           </CardHeader>
           <CardContent className="space-y-6">
             <div>
               <Label className="text-gray-300">Temperature: {temperature[0]}</Label>
+              <p className="text-sm text-gray-400 mb-2">Controls randomness in responses (0.0 = deterministic, 1.0 = very creative)</p>
               <Slider
                 value={temperature}
                 onValueChange={setTemperature}
@@ -188,43 +251,13 @@ const DeployModels = () => {
             </div>
             
             <div>
-              <Label className="text-gray-300">Top P: {topP[0]}</Label>
-              <Slider
-                value={topP}
-                onValueChange={setTopP}
-                max={1}
-                min={0}
-                step={0.1}
-                className="mt-2"
-              />
-            </div>
-            
-            <div>
-              <Label className="text-gray-300">Top K</Label>
-              <Input
-                type="number"
-                value={topK}
-                onChange={(e) => setTopK(Number(e.target.value))}
-                className="bg-gray-800/50 border-gray-600 text-white mt-2"
-              />
-            </div>
-            
-            <div>
-              <Label className="text-gray-300">Max Token Limit</Label>
-              <Input
-                type="number"
-                value={maxTokens}
-                onChange={(e) => setMaxTokens(Number(e.target.value))}
-                className="bg-gray-800/50 border-gray-600 text-white mt-2"
-              />
-            </div>
-            
-            <div>
               <Label className="text-gray-300">System Prompt</Label>
+              <p className="text-sm text-gray-400 mb-2">Define the AI's behavior and personality</p>
               <Textarea
                 value={systemPrompt}
                 onChange={(e) => setSystemPrompt(e.target.value)}
                 className="bg-gray-800/50 border-gray-600 text-white mt-2 min-h-32"
+                placeholder="You are a helpful AI assistant..."
               />
             </div>
           </CardContent>
@@ -246,5 +279,7 @@ const DeployModels = () => {
     </div>
   );
 };
+
+
 
 export default DeployModels;

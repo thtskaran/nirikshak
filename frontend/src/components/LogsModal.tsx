@@ -1,6 +1,6 @@
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
-import { ExternalLink, Download, Sparkles, ChevronDown, ChevronRight } from 'lucide-react';
+import { ExternalLink, Sparkles, ChevronDown, ChevronRight } from 'lucide-react';
 import { toast } from '@/components/ui/sonner';
 import { useState, useEffect } from 'react';
 import LogAnalysisModal from './LogAnalysisModal';
@@ -58,10 +58,13 @@ const LogsModal = ({ model, onClose }: LogsModalProps) => {
           // Set some mock data to show the UI works
           setLogs([
             { 
+              _id: 'mock-id',
+              deploymentId: 'mock-deployment',
+              requestSample: '',
+              responseSample: '',
               timestamp: new Date().toISOString(), 
-              level: 'INFO', 
-              message: 'Logs endpoint not yet implemented on server',
-              source: 'frontend'
+              verdict: 'SAFE',
+              sCode: '',
             }
           ]);
         } else {
@@ -99,54 +102,6 @@ const LogsModal = ({ model, onClose }: LogsModalProps) => {
     return text.substring(0, maxLength) + '...';
   };
 
-  const downloadLogs = async () => {
-    try {
-      // Try the download endpoint with correct path
-      let response;
-      try {
-        response = await api2.get(`/api/v1/logs/${model._id}/download`, {
-          responseType: 'blob'
-        });
-      } catch (downloadErr: any) {
-        if (downloadErr.response?.status === 404) {
-          // Fallback: create a text file from current logs
-          const logText = logs.map(log => 
-            `[${log.timestamp}] ${log.level}: ${log.message}${log.source ? ` (Source: ${log.source})` : ''}`
-          ).join('\n');
-          
-          const blob = new Blob([logText], { type: 'text/plain' });
-          const url = window.URL.createObjectURL(blob);
-          const link = document.createElement('a');
-          link.href = url;
-          link.download = `${model.name}-logs-${new Date().toISOString().split('T')[0]}.txt`;
-          document.body.appendChild(link);
-          link.click();
-          document.body.removeChild(link);
-          window.URL.revokeObjectURL(url);
-          
-          toast.success('Logs downloaded successfully');
-          return;
-        }
-        throw downloadErr;
-      }
-      
-      const blob = new Blob([response.data], { type: 'text/plain' });
-      const url = window.URL.createObjectURL(blob);
-      const link = document.createElement('a');
-      link.href = url;
-      link.download = `${model.name}-logs-${new Date().toISOString().split('T')[0]}.txt`;
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
-      window.URL.revokeObjectURL(url);
-      
-      toast.success('Logs downloaded successfully');
-    } catch (err) {
-      console.error('Failed to download logs:', err);
-      toast.error('Failed to download logs');
-    }
-  };
-
   return (
     <>
       <Dialog open={true} onOpenChange={onClose}>
@@ -154,39 +109,21 @@ const LogsModal = ({ model, onClose }: LogsModalProps) => {
           <DialogHeader>
             <DialogTitle className="text-white flex items-center gap-2">
               <span>Logs - {model.name}</span>
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => setShowAnalysis(true)}
-                className="ml-auto border-purple-500/50 text-purple-400 hover:bg-purple-500/20"
-              >
-                <Sparkles size={16} className="mr-2" />
-                AI Analysis
-              </Button>
             </DialogTitle>
           </DialogHeader>
 
           <div className="space-y-4">
             {/* Actions */}
             <div className="flex gap-2">
+              {/* Removed Download button */}
               <Button
                 variant="outline"
                 size="sm"
-                onClick={downloadLogs}
-                disabled={loading || logs.length === 0}
-                className="border-green-500/50 text-green-400 hover:bg-green-500/20"
-              >
-                <Download size={16} className="mr-2" />
-                Download
-              </Button>
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => window.open(`/logs/${model._id}`, '_blank')}
+                onClick={() => window.open(`http://3.110.167.170:5001/api/v1/logs/${model._id}`, '_blank')}
                 className="border-blue-500/50 text-blue-400 hover:bg-blue-500/20"
               >
                 <ExternalLink size={16} className="mr-2" />
-                View Full Logs
+                View Raw
               </Button>
             </div>
 
@@ -305,6 +242,7 @@ const LogsModal = ({ model, onClose }: LogsModalProps) => {
         </DialogContent>
       </Dialog>
 
+      {/*
       {showAnalysis && (
         <LogAnalysisModal
           logs={logs}
@@ -312,8 +250,10 @@ const LogsModal = ({ model, onClose }: LogsModalProps) => {
           onClose={() => setShowAnalysis(false)}
         />
       )}
+      */}
     </>
   );
 };
+
 
 export default LogsModal;
