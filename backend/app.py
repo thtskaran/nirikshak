@@ -730,15 +730,11 @@ def create_deployment():
     except Exception as thread_error:
         logging.error(f"Failed to start red teaming thread: {thread_error}")
 
-    # Add model info to response (excluding _id)
-    model_info_response = {k: v for k, v in model_info.items() if k != "_id"}
-
     return jsonify({
         "id": str(deployment.id),
         "containerName": container_name,
         "status": "DEPLOYED",
-        "message": "Deployment created successfully",
-        "model": model_info_response
+        "message": "Deployment created successfully"
     }), 201
 
 
@@ -1084,12 +1080,17 @@ def get_report_url(report_id: str):
 
 @app.route("/api/v1/deployments", methods=["GET"])
 def list_deployments():
-    """List all deployments."""
+    """List all deployments with model details."""
     deployments = list(deployments_collection.find())
-    # Convert ObjectId to string for JSON serialization
+    # Convert ObjectId to string for JSON serialization and add model details
     for deployment in deployments:
         deployment['_id'] = str(deployment['_id'])
         deployment['modelId'] = str(deployment['modelId'])
+        # Fetch and attach model details
+        model = models_collection.find_one({"_id": ObjectId(deployment['modelId'])})
+        if model:
+            model['_id'] = str(model['_id'])
+            deployment['model'] = model
     return jsonify(deployments)
 
 @app.route("/api/v1/deployments/<deployment_id>", methods=["GET"])
