@@ -1,8 +1,10 @@
 # Nirikshak: LLM Safety Monitoring & Red Teaming System
 
-# Overview
+## Overview
 
 Nirikshak is designed to monitor and ensure the safety of Large Language Model (LLM) deployments. It focuses on analyzing interactions with these models to detect and mitigate unsafe outputs, leveraging a combination of logging, real-time monitoring, and red teaming techniques.
+
+## Outline
 
 1. **Log Source:**
 
