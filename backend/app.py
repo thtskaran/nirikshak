@@ -730,11 +730,15 @@ def create_deployment():
     except Exception as thread_error:
         logging.error(f"Failed to start red teaming thread: {thread_error}")
 
+    # Add model info to response (excluding _id)
+    model_info_response = {k: v for k, v in model_info.items() if k != "_id"}
+
     return jsonify({
         "id": str(deployment.id),
         "containerName": container_name,
         "status": "DEPLOYED",
-        "message": "Deployment created successfully"
+        "message": "Deployment created successfully",
+        "model": model_info_response
     }), 201
 
 
