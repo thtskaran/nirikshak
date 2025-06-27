@@ -1,37 +1,59 @@
-import { useEffect, useState } from 'react';
-import { Card, CardContent } from '@/components/ui/card';
-import { Button } from '@/components/ui/button';
-import { Badge } from '@/components/ui/badge';
-import { MessageCircle, FileText, Search, Settings } from 'lucide-react';
-import ChatModal from '@/components/ChatModal';
-import LogsModal from '@/components/LogsModal';
-import ScanModal from '@/components/ScanModal';
-import ModelSettingsModal from '@/components/ModelSettingsModal';
+import { useEffect, useState } from "react";
+import { Card, CardContent } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
+import { MessageCircle, FileText, Search, Settings } from "lucide-react";
+import ChatModal from "@/components/ChatModal";
+import LogsModal from "@/components/LogsModal";
+import ScanModal from "@/components/ScanModal";
+import ModelSettingsModal from "@/components/ModelSettingsModal";
 import api2 from "@/lib/api2";
+import { formatNumber } from "@/utils/formatNumber";
+
+export interface Deployment {
+  _id: string;
+  containerId: string;
+  containerName: string;
+  createdAt: string;
+  description: string;
+  endpoint: string;
+  modelId: string;
+  name: string;
+  status: string;
+  systemPrompt: string;
+  temperature: number;
+  updatedAt: string;
+}
 
 const DeployedModels = () => {
-  const [models, setModels] = useState<any[]>([]);
-  const [selectedModel, setSelectedModel] = useState<any>(null);
-  const [modalType, setModalType] = useState<'chat' | 'logs' | 'scan' | 'settings' | null>(null);
+  const [deployments, setDeployments] = useState<Deployment[]>([]);
+  const [selectedDeployment, setSelectedDeployment] =
+    useState<Deployment | null>(null);
+  const [modalType, setModalType] = useState<
+    "chat" | "logs" | "scan" | "settings" | null
+  >(null);
   const [loading, setLoading] = useState(true);
 
-  const openModal = (model: any, type: 'chat' | 'logs' | 'scan' | 'settings') => {
-    setSelectedModel(model);
+  const openModal = (
+    model: Deployment,
+    type: "chat" | "logs" | "scan" | "settings"
+  ) => {
+    setSelectedDeployment(model);
     setModalType(type);
   };
 
   const closeModal = () => {
-    setSelectedModel(null);
+    setSelectedDeployment(null);
     setModalType(null);
   };
 
   useEffect(() => {
     const fetchDeployments = async () => {
       try {
-        const res = await api2.get('/api/v1/deployments');
-        setModels(res.data);
+        const res = await api2.get<Deployment[]>("/api/v1/deployments");
+        setDeployments(res.data);
       } catch (error) {
-        console.error('Failed to fetch deployments:', error);
+        console.error("Failed to fetch deployments:", error);
       } finally {
         setLoading(false);
       }
@@ -41,10 +63,14 @@ const DeployedModels = () => {
 
   const getIcon = (provider: string) => {
     switch (provider?.toLowerCase()) {
-      case 'openai': return '🧠';
-      case 'huggingface': return '🤗';
-      case 'ollama': return '🦄';
-      default: return '⚙️';
+      case "openai":
+        return "🧠";
+      case "huggingface":
+        return "🤗";
+      case "ollama":
+        return "🦄";
+      default:
+        return "⚙️";
     }
   };
 
@@ -59,34 +85,60 @@ const DeployedModels = () => {
         <p className="text-gray-400">Loading models...</p>
       ) : (
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-          {models.map((model) => (
-            <Card key={model._id} className="glass-effect border-cyan-500/20 hover:glow-cyan transition-all duration-300">
+          {deployments.map((deployment) => (
+            <Card
+              key={deployment._id}
+              className="glass-effect border-cyan-500/20 hover:glow-cyan transition-all duration-300"
+            >
               <CardContent className="p-6">
                 <div className="flex items-start justify-between mb-4">
                   <div className="flex items-center space-x-3">
-                    <div className="text-2xl">{getIcon(model.provider)}</div>
+                    <div className="text-2xl">
+                      {getIcon(deployment.provider)}
+                    </div>
                     <div>
-                      <h3 className="text-xl font-semibold text-white">{model.name}</h3>
-                      <p className="text-gray-400">{model.provider || 'Unknown Source'}</p>
+                      <h3 className="text-xl font-semibold text-white">
+                        {deployment.name}
+                      </h3>
+                      <p className="text-gray-400">
+                        {deployment.provider || "Unknown Source"}
+                      </p>
                     </div>
                   </div>
                   <Badge
-                    variant={model.status === 'DEPLOYED' ? 'default' : 'secondary'}
-                    className={model.status === 'DEPLOYED' ? 'bg-green-500' : 'bg-gray-500'}
+                    variant={
+                      deployment.status === "DEPLOYED" ? "default" : "secondary"
+                    }
+                    className={
+                      deployment.status === "DEPLOYED"
+                        ? "bg-green-500"
+                        : "bg-gray-500"
+                    }
                   >
-                    {model.status}
+                    {deployment.status}
                   </Badge>
                 </div>
 
                 <div className="grid grid-cols-2 gap-4 mb-6 text-sm">
                   <div>
-                    <span className="text-gray-400">Requests:</span>
-                    <div className="text-cyan-400 font-semibold">~</div> {/* Placeholder */}
+                    <span className="text-gray-400">Parameters:</span>
+                    <div className="text-cyan-400 font-semibold">
+                      {formatNumber(deployment.parameters || 0)}
+                    </div>
                   </div>
                   <div>
                     <span className="text-gray-400">Created:</span>
                     <div className="text-green-400 font-semibold">
-                      {new Date(model.createdAt).toLocaleString()}
+                      {new Date(deployment.createdAt).toLocaleDateString(
+                        "en-US",
+                        {
+                          year: "numeric",
+                          month: "short",
+                          day: "numeric",
+                          hour: "2-digit",
+                          minute: "2-digit",
+                        }
+                      )}
                     </div>
                   </div>
                 </div>
@@ -95,8 +147,8 @@ const DeployedModels = () => {
                   <Button
                     variant="outline"
                     size="sm"
-                    onClick={() => openModal(model, 'chat')}
-                    className="border-cyan-500/50 text-cyan-400 hover:bg-cyan-500/20"
+                    onClick={() => openModal(deployment, "chat")}
+                    className="border-cyan-500/50 text-cyan-400 hover:bg-cyan-500/20 hover:text-white"
                   >
                     <MessageCircle size={16} className="mr-2" />
                     Chat
@@ -105,8 +157,8 @@ const DeployedModels = () => {
                   <Button
                     variant="outline"
                     size="sm"
-                    onClick={() => openModal(model, 'logs')}
-                    className="border-blue-500/50 text-blue-400 hover:bg-blue-500/20"
+                    onClick={() => openModal(deployment, "logs")}
+                    className="border-blue-500/50 text-blue-400 hover:bg-blue-500/20 hover:text-white"
                   >
                     <FileText size={16} className="mr-2" />
                     Logs
@@ -115,8 +167,8 @@ const DeployedModels = () => {
                   <Button
                     variant="outline"
                     size="sm"
-                    onClick={() => openModal(model, 'scan')}
-                    className="border-purple-500/50 text-purple-400 hover:bg-purple-500/20"
+                    onClick={() => openModal(deployment, "scan")}
+                    className="border-purple-500/50 text-purple-400 hover:bg-purple-500/20 hover:text-white"
                   >
                     <Search size={16} className="mr-2" />
                     Scan
@@ -125,8 +177,8 @@ const DeployedModels = () => {
                   <Button
                     variant="outline"
                     size="sm"
-                    onClick={() => openModal(model, 'settings')}
-                    className="border-gray-500/50 text-gray-400 hover:bg-gray-500/20"
+                    onClick={() => openModal(deployment, "settings")}
+                    className="border-gray-500/50 text-gray-400 hover:bg-gray-500/20 hover:text-white"
                   >
                     <Settings size={16} className="mr-2" />
                     Settings
@@ -139,10 +191,18 @@ const DeployedModels = () => {
       )}
 
       {/* Modals */}
-      {modalType === 'chat' && selectedModel && <ChatModal model={selectedModel} onClose={closeModal} />}
-      {modalType === 'logs' && selectedModel && <LogsModal model={selectedModel} onClose={closeModal} />}
-      {modalType === 'scan' && selectedModel && <ScanModal model={selectedModel} onClose={closeModal} />}
-      {modalType === 'settings' && selectedModel && <ModelSettingsModal model={selectedModel} onClose={closeModal} />}
+      {modalType === "chat" && selectedDeployment && (
+        <ChatModal model={selectedDeployment} onClose={closeModal} />
+      )}
+      {modalType === "logs" && selectedDeployment && (
+        <LogsModal model={selectedDeployment} onClose={closeModal} />
+      )}
+      {modalType === "scan" && selectedDeployment && (
+        <ScanModal model={selectedDeployment} onClose={closeModal} />
+      )}
+      {modalType === "settings" && selectedDeployment && (
+        <ModelSettingsModal model={selectedDeployment} onClose={closeModal} />
+      )}
     </div>
   );
 };
